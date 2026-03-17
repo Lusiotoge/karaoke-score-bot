@@ -1,0 +1,19 @@
+# Python
+__pycache__/
+*.pyc
+
+# venv
+venv/
+
+# config
+config.py
+
+# database
+data.db
+
+# vscode
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db

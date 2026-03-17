@@ -73,3 +73,76 @@ def delete_score(score_id):
 
     conn.commit()
     conn.close()
+
+
+def get_best_scores(user):
+
+    conn = get_conn()
+    cur = conn.cursor()
+
+    cur.execute("""
+    SELECT song, MAX(score)
+    FROM scores
+    WHERE user=?
+    GROUP BY song
+    """, (user,))
+
+    rows = cur.fetchall()
+
+    conn.close()
+
+    return rows
+
+
+def get_song_stats(user, song):
+
+    conn = get_conn()
+    cur = conn.cursor()
+
+    # 最新
+
+    cur.execute("""
+    SELECT score, mode, input_date
+    FROM scores
+    WHERE user=? AND song=?
+    ORDER BY id DESC
+    LIMIT 1
+    """, (user, song))
+
+    last = cur.fetchone()
+
+    # 最高
+
+    cur.execute("""
+    SELECT score, mode, input_date
+    FROM scores
+    WHERE user=? AND song=?
+    ORDER BY score DESC
+    LIMIT 1
+    """, (user, song))
+
+    best = cur.fetchone()
+
+    conn.close()
+
+    return last, best
+
+
+def get_last_full(user, song):
+
+    conn = get_conn()
+    cur = conn.cursor()
+
+    cur.execute("""
+    SELECT score, mode
+    FROM scores
+    WHERE user=? AND song=?
+    ORDER BY id DESC
+    LIMIT 1
+    """, (user, song))
+
+    row = cur.fetchone()
+
+    conn.close()
+
+    return row

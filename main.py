@@ -28,6 +28,22 @@ MODE_ROLE_MAP = {
 
 CHANNEL_MAP = config.CHANNEL_MAP
 
+def get_score_style(score):
+
+    if score == 100:
+        return 0xFFD700, "👑"
+
+    if score >= 95:
+        return 0x9B59B6, "🟣"
+
+    if score >= 90:
+        return 0x3498DB, "🔵"
+
+    if score >= 80:
+        return 0x2ECC71, "🟢"
+
+    return 0x95A5A6, "⚪"
+
 
 # ---------------- machine detect ----------------
 def get_machine_from_mode(mode: str) -> str:
@@ -120,17 +136,30 @@ async def score_add(
 
     last = db.get_last_full(user, song)
 
+    last = db.get_last_full(user, song)
+
+    improved = False
+
     if last:
 
         last_score, last_mode = last
 
+        # 同じ記録 → 保存しない
         if last_score == score and last_mode == mode.value:
 
             await interaction.followup.send(
                 "同じ記録のため保存しません"
             )
-
             return
+
+        # 上昇したか判定
+        if score > last_score:
+            improved = True
+
+    else:
+        # 初回は更新扱い
+        improved = True
+
 
     db.add_score(
         user,
@@ -171,16 +200,18 @@ async def score_add(
         name="今回の点数",
         value=score,
         inline=False
-    )
+    ) 
 
+    # ←ここ変更（mode → machine）
     embed.add_field(
-        name="採点モード",
-        value=mode.value,
+        name="機種",
+        value=machine,
         inline=False
     )
 
+    # ←ここ変更（role表示）
     embed.add_field(
-        name="ロール",
+        name="採点",
         value=role_mention,
         inline=False
     )
@@ -189,27 +220,50 @@ async def score_add(
         text="記録を保存しました"
     )
 
+    first_time = False
+    score_diff = 0
 
-    # interaction返信
+    if last:
+        last_score, last_mode = last
 
-    await interaction.followup.send(
-        embed=embed
-    )
+        if last_score == score and last_mode == mode.value:
+            await interaction.followup.send("同じ記録のため保存しません")
+            return
 
+        if score > last_score:
+            improved = True
+            score_diff = score - last_score
+        else:
+            improved = False
+    else:
+        improved = True
+        first_time = True
 
-    # チャンネル分け
+    db.add_score(user, song, score, mode.value, date)
 
-    channel_id = CHANNEL_MAP.get(machine)
+    # ここから差分通知部分
+    if improved and not first_time:
+        # 公開通知（チャンネル）
+        channel_id = CHANNEL_MAP.get(machine)
+        if channel_id:
+            channel = interaction.guild.get_channel(channel_id)
+            if channel:
+                await channel.send(f"**{user}** さんがスコアを更新しました！ (+{score_diff:.3f})")
+                await channel.send(embed=embed)
 
-    if channel_id:
+    # 自分への返信
+        await interaction.followup.send(
+            content=f"更新しました (+{score_diff:.3f})",
+            embed=embed
+         )
+    else:
+    # 初回登録 or 前回スコアより低い場合は自分だけに通知
+        await interaction.followup.send(
+            content="記録しました",
+            embed=embed,
+            ephemeral=True
+        )
 
-        channel = interaction.guild.get_channel(channel_id)
-
-        if channel:
-
-            await channel.send(
-                embed=embed
-            )
 
 # ---------------- list ----------------
 
@@ -241,6 +295,62 @@ async def score_list(interaction: discord.Interaction):
 
 # ---------------- delete ----------------
 
+class DeleteConfirmView(discord.ui.View):
+
+    def __init__(self, user_id):
+        super().__init__(timeout=30)
+        self.user_id = user_id
+
+
+    async def interaction_check(self, interaction):
+
+        if interaction.user.id != self.user_id:
+
+            await interaction.response.send_message(
+                "この操作は実行できません",
+                ephemeral=True
+            )
+
+            return False
+
+        return True
+
+
+    @discord.ui.button(
+        label="削除",
+        style=discord.ButtonStyle.danger
+    )
+    async def delete_button(
+        self,
+        interaction: discord.Interaction,
+        button: discord.ui.Button
+    ):
+
+        user = interaction.user.name
+
+        db.delete_by_user(user)
+
+        await interaction.response.edit_message(
+            content="削除しました",
+            view=None
+        )
+
+
+    @discord.ui.button(
+        label="キャンセル",
+        style=discord.ButtonStyle.secondary
+    )
+    async def cancel_button(
+        self,
+        interaction: discord.Interaction,
+        button: discord.ui.Button
+    ):
+
+        await interaction.response.edit_message(
+            content="キャンセルしました",
+            view=None
+        )
+
 @bot.tree.command(
     name="score_delete",
     description="記録削除",
@@ -270,6 +380,24 @@ async def score_delete(
         f"{song} 削除しました"
     )
 
+@bot.tree.command(
+    name="score_delete_me",
+    description="⚠この操作を行うとあなたのこれまでの記録が全て消えます！",
+    guild=GUILD_ID
+)
+async def score_delete_me(
+    interaction: discord.Interaction,
+):
+
+    view = DeleteConfirmView(
+        interaction.user.id
+    )
+
+    await interaction.response.send_message(
+        "⚠本当に削除しますか？",
+        view=view,
+        ephemeral=True
+    )
 
 # ---------------- best ----------------
 

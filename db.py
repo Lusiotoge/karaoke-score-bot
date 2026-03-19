@@ -146,3 +146,31 @@ def get_last_full(user, song):
     conn.close()
 
     return row
+
+
+def delete_by_id(record_id):
+
+    conn = sqlite3.connect(DB_NAME)
+    cur = conn.cursor()
+
+    cur.execute(
+        "DELETE FROM scores WHERE id=?",
+        (record_id,)
+    )
+
+    conn.commit()
+    conn.close()
+
+
+def delete_by_user(user):
+
+    conn = sqlite3.connect("data.db")
+    cur = conn.cursor()
+
+    cur.execute(
+        "DELETE FROM scores WHERE user=?",
+        (user,)
+    )
+
+    conn.commit()
+    conn.close()

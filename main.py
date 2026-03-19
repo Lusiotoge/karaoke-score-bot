@@ -26,6 +26,22 @@ MODE_ROLE_MAP = {
     "E-bo": 1483516271260598282,
 }
 
+CHANNEL_MAP = config.CHANNEL_MAP
+
+
+# ---------------- machine detect ----------------
+def get_machine_from_mode(mode: str) -> str:
+
+    mode = mode.lower()
+
+    if "dam" in mode:
+        return "DAM"
+
+    if "joysound" in mode:
+        return "JOYSOUND"
+
+    return "OTHER"
+
 
 @bot.event
 async def on_ready():
@@ -75,7 +91,7 @@ async def ping(interaction: discord.Interaction):
     ],
 
     mode=[
-        app_commands.Choice(name="DAM AiHeart", value="DAM AiHeart"),
+        app_commands.Choice(name="DAM Ai Heart", value="DAM Ai Heart"),
         app_commands.Choice(name="DAM Ai", value="DAM Ai"),
         app_commands.Choice(name="DAM DX-G", value="DAM DX-G"),
         app_commands.Choice(name="DAM DX", value="DAM DX"),
@@ -131,10 +147,69 @@ async def score_add(
     else:
         role_mention = mode.value
 
-    await interaction.followup.send(
-        f"{song}\n{score}\n{mode.value}\n{role_mention}\n記録を保存しました"
+
+    # ←これを先に送る（interaction応答）
+
+    machine = get_machine_from_mode(mode.value)
+
+    color = get_role_color(
+        interaction.guild,
+        machine
     )
 
+    embed = discord.Embed(
+        title=song,
+        description=f"ユーザー：{interaction.user.name}",
+        color=color
+    )
+
+    embed.set_thumbnail(
+        url=interaction.user.display_avatar.url
+    )
+
+    embed.add_field(
+        name="今回の点数",
+        value=score,
+        inline=False
+    )
+
+    embed.add_field(
+        name="採点モード",
+        value=mode.value,
+        inline=False
+    )
+
+    embed.add_field(
+        name="ロール",
+        value=role_mention,
+        inline=False
+    )
+
+    embed.set_footer(
+        text="記録を保存しました"
+    )
+
+
+    # interaction返信
+
+    await interaction.followup.send(
+        embed=embed
+    )
+
+
+    # チャンネル分け
+
+    channel_id = CHANNEL_MAP.get(machine)
+
+    if channel_id:
+
+        channel = interaction.guild.get_channel(channel_id)
+
+        if channel:
+
+            await channel.send(
+                embed=embed
+            )
 
 # ---------------- list ----------------
 

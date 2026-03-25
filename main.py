@@ -5,6 +5,9 @@ from discord import app_commands
 import config
 import db
 
+import csv
+import io
+
 from datetime import datetime
 
 intents = discord.Intents.default()
@@ -95,6 +98,7 @@ async def ping(interaction: discord.Interaction):
 
 @app_commands.describe(
     method="入力方法",
+    machine="機種",
     mode="採点モード",
     song="曲名",
     score="点数"
@@ -104,6 +108,12 @@ async def ping(interaction: discord.Interaction):
 
     method=[
         app_commands.Choice(name="manual", value="manual"),
+        app_commands.Choice(name="csv", value="csv"),
+    ],
+
+    machine=[
+        app_commands.Choice(name="DAM", value="DAM"),
+        app_commands.Choice(name="JOYSOUND", value="JOYSOUND"),
     ],
 
     mode=[
@@ -124,12 +134,163 @@ async def ping(interaction: discord.Interaction):
 async def score_add(
     interaction: discord.Interaction,
     method: app_commands.Choice[str],
-    mode: app_commands.Choice[str],
-    song: str,
-    score: float,
+    machine: app_commands.Choice[str] | None = None,
+    mode: app_commands.Choice[str] | None = None,
+    song: str | None = None,
+    score: float | None = None,
+    file: discord.Attachment | None = None,
 ):
 
     await interaction.response.defer()
+
+    # =========================
+    # manualチェック
+    # =========================
+
+    if method.value == "manual":
+
+        if not song or not score or not mode:
+
+            await interaction.followup.send(
+                "manualでは曲名・点数・モードが必要です",
+                ephemeral=True
+            )
+            return
+
+
+    # =========================
+    # csvチェック
+    # =========================
+
+    if method.value == "csv":
+
+        if not file:
+
+            await interaction.followup.send(
+                "CSVファイルを添付してください",
+                ephemeral=True
+            )
+            return
+
+        if not machine:
+
+            await interaction.followup.send(
+                "CSVでは機種を選択してください",
+                ephemeral=True
+            )
+            return
+
+        if not mode:
+
+            await interaction.followup.send(
+                "採点モードを選択してください",
+                ephemeral=True
+            )
+            return
+
+        data = await file.read()
+        text = data.decode("utf-8")
+        f = io.StringIO(text)
+        reader = csv.reader(f)
+
+        updated = []
+        new = []
+
+        user = interaction.user.name
+        date = datetime.now().strftime("%Y-%m-%d")
+
+        for i, row in enumerate(reader):
+
+            if i == 0:
+                continue
+
+            try:
+
+                song = row[2].strip()
+
+                score_text = row[4].strip()
+
+                if not score_text:
+                    continue
+
+                score = float(score_text)
+
+                machine_name = machine.value
+                mode_name = mode.value
+
+                last = db.get_last_full(user, song)
+
+                if last:
+
+                    last_score, last_mode = last
+
+                    if score > last_score:
+
+                        db.add_score(
+                            user,
+                            song,
+                            score,
+                            mode_name,
+                            date
+                        )
+
+                        updated.append(
+                            f"[{machine_name}] {song} {last_score} → {score}"
+                        )
+
+                else:
+
+                    db.add_score(
+                        user,
+                        song,
+                        score,
+                        mode_name,
+                        date
+                    )
+
+                    new.append(
+                        f"[{machine_name}] {song} {score}"
+                    )
+
+            except Exception as e:
+                print("CSV error:", row, e)
+
+    # ===== 通知 =====
+
+    if not updated and not new:
+
+        await interaction.followup.send(
+            "更新なし",
+            ephemeral=True
+        )
+        return
+
+    embed = discord.Embed(
+        title="CSV登録結果",
+        color=discord.Color.blue()
+    )
+
+    if updated:
+
+        embed.add_field(
+            name="更新",
+            value="\n".join(updated[:20]),
+            inline=False
+        )
+
+    if new:
+
+        embed.add_field(
+            name="新規",
+            value="\n".join(new[:20]),
+            inline=False
+        )
+
+    await interaction.followup.send(
+        embed=embed
+    )
+
+    return
 
     user = interaction.user.name
     date = datetime.now().strftime("%Y-%m-%d")

@@ -174,3 +174,58 @@ def delete_by_user(user):
 
     conn.commit()
     conn.close()
+
+
+def update_score(user_id, song, score, mode):
+
+    conn = sqlite3.connect(DB_NAME)
+    cur = conn.cursor()
+
+    cur.execute(
+        """
+        SELECT score FROM scores
+        WHERE user_id=? AND song=? AND mode=?
+        """,
+        (user_id, song, mode)
+    )
+
+    row = cur.fetchone()
+
+    # 初回登録
+    if row is None:
+
+        cur.execute(
+            """
+            INSERT INTO scores (user_id, song, score, mode)
+            VALUES (?, ?, ?, ?)
+            """,
+            (user_id, song, score, mode)
+        )
+
+        conn.commit()
+        conn.close()
+
+        return "new"
+
+    old_score = row[0]
+
+    # 更新
+    if score > old_score:
+
+        cur.execute(
+            """
+            UPDATE scores
+            SET score=?
+            WHERE user_id=? AND song=? AND mode=?
+            """,
+            (score, user_id, song, mode)
+        )
+
+        conn.commit()
+        conn.close()
+
+        return "update"
+
+    conn.close()
+
+    return "nochange"

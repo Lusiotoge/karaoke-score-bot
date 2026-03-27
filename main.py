@@ -427,7 +427,102 @@ async def score_add(
 
 
 # ---------------- list ----------------
+# ① まず普通の関数（デコレーターなし）
+def create_score_embed(rows, page, guild, per_page=20):
+    start = page * per_page
+    end = start + per_page
+    view_rows = rows[start:end]
 
+    embed = discord.Embed(
+        title="スコア一覧",
+        color=discord.Color.blue()
+    )
+
+    description = ""
+
+    for i, row in enumerate(view_rows, start=start+1):
+        id_, song, score, mode, date = row
+
+        # ロール取得
+        role = discord.utils.get(guild.roles, name=mode)
+        role_mention = role.mention if role else mode
+
+        # ⭐評価
+        if score >= 90:
+            mark = "🌟"
+        elif score >= 85:
+            mark = "⭐"
+        else:
+            mark = ""
+
+        # 👇 2行表示
+        description += f"{i:02d}. {song} {mark}\n　└ {score}点 / {role_mention}\n"
+
+    embed.description = description
+
+    total_pages = (len(rows) - 1) // per_page + 1
+    embed.set_footer(text=f"{page+1}/{total_pages}ページ")
+
+    return embed
+
+# ② 次にView
+class ScoreListView(discord.ui.View):
+    def __init__(self, rows, guild):
+        super().__init__(timeout=180)
+        self.original_rows = rows  # 元データ保存
+        self.rows = rows.copy()
+        self.guild = guild
+        self.page = 0
+        self.per_page = 20
+        self.sort_mode = "default"
+
+    def sort_rows(self):
+        if self.sort_mode == "score":
+            self.rows = sorted(self.original_rows, key=lambda x: x[2], reverse=True)
+        elif self.sort_mode == "song":
+            self.rows = sorted(self.original_rows, key=lambda x: x[1])
+        elif self.sort_mode == "date":
+            self.rows = sorted(self.original_rows, key=lambda x: x[4], reverse=True)
+        else:
+            self.rows = self.original_rows.copy()
+
+    async def update(self, interaction):
+        self.sort_rows()
+        embed = create_score_embed(self.rows, self.page, self.guild, self.per_page)
+        await interaction.response.edit_message(embed=embed, view=self)
+
+    @discord.ui.button(label="◀", style=discord.ButtonStyle.secondary, row=0)
+    async def prev(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if self.page > 0:
+            self.page -= 1
+        await self.update(interaction)
+
+    @discord.ui.button(label="▶", style=discord.ButtonStyle.secondary, row=0)
+    async def next(self, interaction: discord.Interaction, button: discord.ui.Button):
+        max_page = (len(self.rows) - 1) // self.per_page
+        if self.page < max_page:
+            self.page += 1
+        await self.update(interaction)
+
+    @discord.ui.button(label="点数順", style=discord.ButtonStyle.primary)
+    async def sort_score(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.sort_mode = "score"
+        self.page = 0
+        await self.update(interaction)
+
+    @discord.ui.button(label="曲名順", style=discord.ButtonStyle.primary)
+    async def sort_song(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.sort_mode = "song"
+        self.page = 0
+        await self.update(interaction)
+
+    @discord.ui.button(label="日付順", style=discord.ButtonStyle.primary)
+    async def sort_date(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.sort_mode = "date"
+        self.page = 0
+        await self.update(interaction)
+
+# ③ 最後にコマンド（ここにデコレーター！）
 @bot.tree.command(
     name="score_list",
     description="記録一覧",
@@ -435,23 +530,22 @@ async def score_add(
 )
 async def score_list(interaction: discord.Interaction):
 
-    user = interaction.user.name
+    await interaction.response.defer()  # ← 追加
 
+    user = interaction.user.name
     rows = db.get_scores(user)
 
     if not rows:
-        await interaction.response.send_message("なし")
+        await interaction.followup.send("記録なし")
         return
 
-    msg = ""
+    view = ScoreListView(rows, interaction.guild)
+    embed = create_score_embed(rows, 0, interaction.guild)
 
-    for i, row in enumerate(rows, start=1):
-
-        id_, song, score, mode, date = row
-
-        msg += f"{i} | {song} | {score} | {mode}\n"
-
-    await interaction.response.send_message(msg)
+    await interaction.followup.send(  # ← 変更
+        embed=embed,
+        view=view
+    )
 
 
 # ---------------- delete ----------------

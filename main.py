@@ -48,6 +48,146 @@ def get_score_style(score):
     return 0x95A5A6, "⚪"
 
 
+def parse_joysound_result(image_path):
+    from PIL import Image, ImageEnhance, ImageFilter
+    import pytesseract
+    import re
+
+    pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
+
+    img = Image.open(image_path)
+    img = img.convert("L")
+
+    enhancer = ImageEnhance.Contrast(img)
+    img = enhancer.enhance(3)
+    img = img.filter(ImageFilter.SHARPEN)
+
+    text = pytesseract.image_to_string(img, lang="jpn")
+
+    lines = text.split("\n")
+
+    def is_song_line(line):
+        if not line:
+            return False
+        if re.search(r"\d{2}[\.:]", line):
+            return False
+        if "AT" in line or "+" in line:
+            return False
+        if re.fullmatch(r"[A-Za-z0-9 .]+", line):
+            return False
+        if len(line) <= 2:
+            return False
+        return True
+
+    results = []
+
+    for i, line in enumerate(lines):
+        if re.search(r"\d{2}[\.:]", line):
+
+            s = line.replace(":", ".")
+            s = re.sub(r"[^\d\.]", "", s)
+
+            if s.startswith("."):
+                s = "0" + s
+
+            if "." not in s:
+                s = s[:2] + ".000"
+
+            if "." in s:
+                integer, decimal = s.split(".", 1)
+                decimal = decimal.ljust(3, "0")
+                s = integer + "." + decimal[:3]
+
+            song = "不明"
+            candidates = []
+
+            for j in range(i-1, max(i-6, -1), -1):
+                candidate = lines[j].strip()
+                if is_song_line(candidate):
+                    candidates.append(candidate)
+
+            if candidates:
+                song = candidates[-1]
+
+            results.append({
+                "song": song,
+                "score": s,
+                "mode": "JOYSOUND"
+            })
+
+    return results
+
+def create_ocr_embed(results):
+    embed = discord.Embed(
+        title="OCR結果確認",
+        color=discord.Color.orange()
+    )
+
+    desc = ""
+    for i, r in enumerate(results, 1):
+        desc += f"{i}. {r['song']} / {r['score']} / {r['mode']}\n"
+
+    embed.description = desc
+    embed.set_footer(text="問題なければ登録、違う場合は修正してください")
+
+    return embed
+
+class OCRConfirmView(discord.ui.View):
+    def __init__(self, results, user):
+        super().__init__(timeout=180)
+        self.results = results
+        self.user = user
+
+    @discord.ui.button(label="登録", style=discord.ButtonStyle.success)
+    async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button):
+
+        for r in self.results:
+            db.add_score(
+                user=self.user,
+                song=r["song"],
+                score=r["score"],
+                mode=r["mode"]
+            )
+
+        await interaction.response.edit_message(
+            content="登録完了しました",
+            embed=None,
+            view=None
+        )
+
+    @discord.ui.button(label="修正", style=discord.ButtonStyle.secondary)
+    async def edit(self, interaction: discord.Interaction, button: discord.ui.Button):
+
+        await interaction.response.send_message(
+            "修正は /score_edit コマンドで行ってください",
+            ephemeral=True
+        )
+
+@bot.tree.command(
+    name="ocr_import",
+    description="画像からスコア読み込み",
+    guild=GUILD_ID
+)
+async def ocr_import(interaction: discord.Interaction, image: discord.Attachment):
+
+    file_path = f"temp_{interaction.user.id}.png"
+    await image.save(file_path)
+
+    results = parse_joysound_result(file_path)
+
+    if not results:
+        await interaction.response.send_message("読み取り失敗")
+        return
+
+    embed = create_ocr_embed(results)
+    view = OCRConfirmView(results, interaction.user.name)
+
+    await interaction.response.send_message(
+        embed=embed,
+        view=view
+    )
+
+
 # ---------------- machine detect ----------------
 def get_machine_from_mode(mode: str) -> str:
 
@@ -522,7 +662,6 @@ class ScoreListView(discord.ui.View):
         self.page = 0
         await self.update(interaction)
 
-# ③ 最後にコマンド（ここにデコレーター！）
 @bot.tree.command(
     name="score_list",
     description="記録一覧",

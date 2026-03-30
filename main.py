@@ -1,4 +1,4 @@
-import discord
+import discord                                              
 from discord.ext import commands
 from discord import app_commands
 
@@ -247,8 +247,9 @@ async def ping(interaction: discord.Interaction):
 @app_commands.choices(
 
     method=[
-        app_commands.Choice(name="manual", value="manual"),
-        app_commands.Choice(name="csv", value="csv"),
+        app_commands.Choice(name="manual", value="manual"), #手入力
+        app_commands.Choice(name="csv", value="csv"), #OctariaCsv
+        app_commands.Choice(name="csv_template", value="csv_template"),  #自作テンプレートcsv
     ],
 
     machine=[
@@ -284,9 +285,10 @@ async def score_add(
     await interaction.response.defer()
 
     # =========================
-    # manualチェック
+    # method分岐
     # =========================
 
+    # ===== manual =====
     if method.value == "manual":
 
         if not song or not score or not mode:
@@ -298,11 +300,8 @@ async def score_add(
             return
 
 
-    # =========================
-    # csvチェック
-    # =========================
-
-    if method.value == "csv":
+    # ===== csv（旧） =====
+    elif method.value == "csv":
 
         if not file:
 
@@ -345,11 +344,9 @@ async def score_add(
                 continue
 
             try:
-
                 song = row[2].strip()
 
                 score_text = row[4].strip()
-
                 if not score_text:
                     continue
 
@@ -361,39 +358,88 @@ async def score_add(
                 last = db.get_last_full(user, song)
 
                 if last:
-
                     last_score, last_mode = last
 
                     if score > last_score:
-
-                        db.add_score(
-                            user,
-                            song,
-                            score,
-                            mode_name,
-                            date
-                        )
-
-                        updated.append(
-                            f"[{machine_name}] {song} {last_score} → {score}"
-                        )
+                        db.add_score(user, song, score, mode_name, date)
+                        updated.append(f"[{machine_name}] {song} {last_score} → {score}")
 
                 else:
-
-                    db.add_score(
-                        user,
-                        song,
-                        score,
-                        mode_name,
-                        date
-                    )
-
-                    new.append(
-                        f"[{machine_name}] {song} {score}"
-                    )
+                    db.add_score(user, song, score, mode_name, date)
+                    new.append(f"[{machine_name}] {song} {score}")
 
             except Exception as e:
                 print("CSV error:", row, e)
+
+        await interaction.followup.send(
+            f"更新:{len(updated)}件 / 新規:{len(new)}件",
+            ephemeral=True
+        )
+
+        return
+
+
+    # ===== csv_template（新） =====
+    elif method.value == "csv_template":
+
+        if not file:
+
+            await interaction.followup.send(
+                "CSVファイルを添付してください",
+                ephemeral=True
+            )
+            return
+
+        data = await file.read()
+        text = data.decode("utf-8")
+        f = io.StringIO(text)
+        reader = csv.reader(f)
+
+        updated = []
+        new = []
+
+        user = interaction.user.name
+        date = datetime.now().strftime("%Y-%m-%d")
+
+        for i, row in enumerate(reader):
+
+            # 1行目（ヘッダー）＋2行目（サンプル）スキップ
+            if i < 2:
+                continue
+
+            # 列不足防止
+            if len(row) < 4:
+                continue
+
+            try:
+                song = row[0].strip()
+                score = float(row[1].strip())
+                machine_name = row[2].strip()
+                mode_name = row[3].strip()
+
+                last = db.get_last_full(user, song)
+
+                if last:
+                    last_score, last_mode = last
+
+                    if score > last_score:
+                        db.add_score(user, song, score, mode_name, date)
+                        updated.append(f"[{machine_name}] {song} {last_score} → {score}")
+
+                else:
+                    db.add_score(user, song, score, mode_name, date)
+                    new.append(f"[{machine_name}] {song} {score}")
+
+            except Exception as e:
+                print("CSV error:", row, e)
+
+        await interaction.followup.send(
+            f"更新:{len(updated)}件 / 新規:{len(new)}件",
+            ephemeral=True
+        )
+
+        return
+
 
     # ===== 通知 =====
 
@@ -904,6 +950,22 @@ async def song_info(
 
     await interaction.followup.send(
         embed=embed
+    )
+
+
+# ---------------- CSV Template link ----------------
+@bot.tree.command(
+    name="template",
+    description="CSVテンプレートを取得",
+    guild=GUILD_ID
+)
+async def template(interaction: discord.Interaction):
+
+    url = "https://docs.google.com/spreadsheets/d/1l141WQBHxCHvBKv9Tde3DZA9ihyGtoIb_KHxU3py0WY/copy"
+
+    await interaction.response.send_message(
+        f"テンプレートはこちら👇 リンク先からコピーして自分のドライブに入れて使ってください\n{url}",
+        ephemeral=True
     )
 
 

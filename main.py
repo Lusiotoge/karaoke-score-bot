@@ -2,7 +2,6 @@ import discord
 from discord.ext import commands
 from discord import app_commands
 
-import config
 import db
 
 import csv
@@ -13,7 +12,8 @@ from datetime import datetime
 intents = discord.Intents.default()
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-GUILD_ID = discord.Object(id=config.GUILD_ID)
+import os
+GUILD_ID = discord.Object(id=int(os.getenv("GUILD_ID")))
 
 from flask import Flask
 import threading
@@ -40,7 +40,11 @@ MODE_ROLE_MAP = {
     "E-bo": 1483516271260598282,
 }
 
-CHANNEL_MAP = config.CHANNEL_MAP
+CHANNEL_MAP = {
+    "DAM": 1484167905993162844,
+    "JOYSOUND": 1484167951971123222,
+    "Other": 1484168288572543146,
+}
 
 def get_score_style(score):
 
@@ -60,71 +64,7 @@ def get_score_style(score):
 
 
 def parse_joysound_result(image_path):
-    from PIL import Image, ImageEnhance, ImageFilter
-    import pytesseract
-    import re
-
-    img = Image.open(image_path)
-    img = img.convert("L")
-
-    enhancer = ImageEnhance.Contrast(img)
-    img = enhancer.enhance(3)
-    img = img.filter(ImageFilter.SHARPEN)
-
-    text = pytesseract.image_to_string(img, lang="jpn")
-
-    lines = text.split("\n")
-
-    def is_song_line(line):
-        if not line:
-            return False
-        if re.search(r"\d{2}[\.:]", line):
-            return False
-        if "AT" in line or "+" in line:
-            return False
-        if re.fullmatch(r"[A-Za-z0-9 .]+", line):
-            return False
-        if len(line) <= 2:
-            return False
-        return True
-
-    results = []
-
-    for i, line in enumerate(lines):
-        if re.search(r"\d{2}[\.:]", line):
-
-            s = line.replace(":", ".")
-            s = re.sub(r"[^\d\.]", "", s)
-
-            if s.startswith("."):
-                s = "0" + s
-
-            if "." not in s:
-                s = s[:2] + ".000"
-
-            if "." in s:
-                integer, decimal = s.split(".", 1)
-                decimal = decimal.ljust(3, "0")
-                s = integer + "." + decimal[:3]
-
-            song = "不明"
-            candidates = []
-
-            for j in range(i-1, max(i-6, -1), -1):
-                candidate = lines[j].strip()
-                if is_song_line(candidate):
-                    candidates.append(candidate)
-
-            if candidates:
-                song = candidates[-1]
-
-            results.append({
-                "song": song,
-                "score": s,
-                "mode": "JOYSOUND"
-            })
-
-    return results
+    return []
 
 def create_ocr_embed(results):
     embed = discord.Embed(
@@ -994,4 +934,4 @@ def get_role_color(guild, role_name):
 
 threading.Thread(target=run_web).start()
 
-bot.run(config.TOKEN)
+bot.run(os.getenv("TOKEN"))

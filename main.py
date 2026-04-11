@@ -15,6 +15,17 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 
 GUILD_ID = discord.Object(id=config.GUILD_ID)
 
+from flask import Flask
+import threading
+
+app = Flask(__name__)
+
+@app.route("/")
+def home():
+    return "Bot is alive!"
+
+def run_web():
+    app.run(host="0.0.0.0", port=10000)
 
 MODE_ROLE_MAP = {
     "DAM Ai Heart": 1483501121539670087,
@@ -983,5 +994,6 @@ def get_role_color(guild, role_name):
 
     return discord.Color.light_grey()
 
+threading.Thread(target=run_web).start()
 
 bot.run(config.TOKEN)

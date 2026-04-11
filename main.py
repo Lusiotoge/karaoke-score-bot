@@ -932,6 +932,6 @@ def get_role_color(guild, role_name):
 
     return discord.Color.light_grey()
 
-threading.Thread(target=run_web).start()
+threading.Thread(target=run_web, daemon=True).start()
 
 bot.run(os.getenv("TOKEN"))

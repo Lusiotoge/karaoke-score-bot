@@ -64,8 +64,6 @@ def parse_joysound_result(image_path):
     import pytesseract
     import re
 
-    pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
-
     img = Image.open(image_path)
     img = img.convert("L")
 

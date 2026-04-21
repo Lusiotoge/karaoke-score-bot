@@ -1,19 +1,25 @@
 import discord                                              
 from discord.ext import commands
 from discord import app_commands
+from request import RequestCommands
+
+from ranking import RankingCommands
+
+intents = discord.Intents.default()
+bot = commands.Bot(command_prefix="!", intents=intents)
+
+from event import EventSystem, EventCommands
 
 import db
 
 import csv
 import io
 
+import config
+
 from datetime import datetime
 
-intents = discord.Intents.default()
-bot = commands.Bot(command_prefix="!", intents=intents)
-
 import os
-GUILD_ID = discord.Object(id=int(os.getenv("GUILD_ID")))
 
 from flask import Flask
 import threading
@@ -115,8 +121,9 @@ class OCRConfirmView(discord.ui.View):
 @bot.tree.command(
     name="ocr_import",
     description="画像からスコア読み込み",
-    guild=GUILD_ID
+    guild=discord.Object(id=config.GUILD_ID)
 )
+
 async def ocr_import(interaction: discord.Interaction, image: discord.Attachment):
 
     file_path = f"temp_{interaction.user.id}.png"
@@ -158,19 +165,26 @@ async def on_ready():
 
     db.init_db()
 
+    guild = discord.Object(id=config.GUILD_ID)
+
     try:
-        synced = await bot.tree.sync(guild=GUILD_ID)
+        bot.tree.add_command(RequestCommands(), guild=guild)
+        bot.tree.add_command(RankingCommands(), guild=guild)
+
+        synced = await bot.tree.sync(guild=guild)  # ←ここも修正
         print(f"Sync {len(synced)} commands")
+
     except Exception as e:
         print(e)
 
+    EventSystem(bot)
 
 # ---------------- ping ----------------
 
 @bot.tree.command(
     name="ping",
     description="test",
-    guild=GUILD_ID
+    guild=discord.Object(id=config.GUILD_ID)
 )
 async def ping(interaction: discord.Interaction):
 
@@ -182,7 +196,7 @@ async def ping(interaction: discord.Interaction):
 @bot.tree.command(
     name="score_add",
     description="記録追加",
-    guild=GUILD_ID
+    guild=discord.Object(id=config.GUILD_ID)
 )
 
 @app_commands.describe(
@@ -233,106 +247,111 @@ async def score_add(
 
     await interaction.response.defer()
 
-    # =========================
-    # method分岐
-    # =========================
+    user = interaction.user.name
+    date = datetime.now().strftime("%Y-%m-%d")
 
-    # ===== manual =====
+    # =========================
+    # manual
+    # =========================
     if method.value == "manual":
 
         if not song or not score or not mode:
-
             await interaction.followup.send(
                 "manualでは曲名・点数・モードが必要です",
                 ephemeral=True
             )
             return
 
+        last = db.get_last_full(user, song)
 
-    # ===== csv（旧） =====
+        score_diff = 0
+        improved = False
+        first_time = False
+
+        if last:
+            last_score, _ = last
+
+            if score > last_score:
+                improved = True
+                score_diff = score - last_score
+        else:
+            improved = True
+            first_time = True
+
+        db.add_score(user, song, score, mode.value, date)
+
+        # メッセージ
+        if first_time:
+            msg = "🎉 初回登録！"
+        elif improved:
+            msg = f"✨ スコア更新！ (+{score_diff:.3f})"
+        else:
+            msg = "記録しました（更新なし）"
+
+        await interaction.followup.send(msg, ephemeral=True)
+
+        return
+
+    # =========================
+    # csv
+    # =========================
     elif method.value == "csv":
 
-        if not file:
-
+        if not file or not machine or not mode:
             await interaction.followup.send(
-                "CSVファイルを添付してください",
-                ephemeral=True
-            )
-            return
-
-        if not machine:
-
-            await interaction.followup.send(
-                "CSVでは機種を選択してください",
-                ephemeral=True
-            )
-            return
-
-        if not mode:
-
-            await interaction.followup.send(
-                "採点モードを選択してください",
+                "CSVはファイル・機種・モード必須",
                 ephemeral=True
             )
             return
 
         data = await file.read()
         text = data.decode("utf-8")
-        f = io.StringIO(text)
-        reader = csv.reader(f)
+        reader = csv.reader(io.StringIO(text))
 
-        updated = []
-        new = []
-
-        user = interaction.user.name
-        date = datetime.now().strftime("%Y-%m-%d")
+        updated = 0
+        new = 0
 
         for i, row in enumerate(reader):
-
             if i == 0:
+                continue
+
+            if len(row) < 5:
                 continue
 
             try:
                 song = row[2].strip()
-
                 score_text = row[4].strip()
                 if not score_text:
                     continue
 
                 score = float(score_text)
 
-                machine_name = machine.value
-                mode_name = mode.value
-
                 last = db.get_last_full(user, song)
 
                 if last:
-                    last_score, last_mode = last
-
-                    if score > last_score:
-                        db.add_score(user, song, score, mode_name, date)
-                        updated.append(f"[{machine_name}] {song} {last_score} → {score}")
-
+                    if score > last[0]:
+                        db.add_score(user, song, score, mode.value, date)
+                        updated += 1
                 else:
-                    db.add_score(user, song, score, mode_name, date)
-                    new.append(f"[{machine_name}] {song} {score}")
+                    db.add_score(user, song, score, mode.value, date)
+                    new += 1
 
             except Exception as e:
                 print("CSV error:", row, e)
 
         await interaction.followup.send(
-            f"更新:{len(updated)}件 / 新規:{len(new)}件",
+            f"更新:{updated}件 / 新規:{new}件",
             ephemeral=True
         )
 
         return
 
-
-    # ===== csv_template（新） =====
+    # =========================
+    # csv_template
+    # =========================
     elif method.value == "csv_template":
 
         if not file:
-
             await interaction.followup.send(
                 "CSVファイルを添付してください",
                 ephemeral=True
@@ -341,49 +360,43 @@ async def score_add(
 
         data = await file.read()
         text = data.decode("utf-8")
-        f = io.StringIO(text)
-        reader = csv.reader(f)
+        reader = csv.reader(io.StringIO(text))
 
-        updated = []
-        new = []
-
-        user = interaction.user.name
-        date = datetime.now().strftime("%Y-%m-%d")
+        updated = 0
+        new = 0
 
         for i, row in enumerate(reader):
-
-            # 1行目（ヘッダー）＋2行目（サンプル）スキップ
             if i < 2:
                 continue
 
-            # 列不足防止
             if len(row) < 4:
                 continue
 
             try:
                 song = row[0].strip()
-                score = float(row[1].strip())
-                machine_name = row[2].strip()
+                score_text = row[4].strip()
+                if not score_text:
+                    continue
+
+                score = float(score_text)
+
                 mode_name = row[3].strip()
 
                 last = db.get_last_full(user, song)
 
                 if last:
-                    last_score, last_mode = last
-
-                    if score > last_score:
+                    if score > last[0]:
                         db.add_score(user, song, score, mode_name, date)
-                        updated.append(f"[{machine_name}] {song} {last_score} → {score}")
-
+                        updated += 1
                 else:
                     db.add_score(user, song, score, mode_name, date)
-                    new.append(f"[{machine_name}] {song} {score}")
+                    new += 1
 
-            except Exception as e:
-                print("CSV error:", row, e)
+            except:
+                continue
 
         await interaction.followup.send(
-            f"更新:{len(updated)}件 / 新規:{len(new)}件",
+            f"更新:{updated}件 / 新規:{new}件",
             ephemeral=True
         )
 
@@ -660,7 +673,7 @@ class ScoreListView(discord.ui.View):
 @bot.tree.command(
     name="score_list",
     description="記録一覧",
-    guild=GUILD_ID
+    guild=discord.Object(id=config.GUILD_ID)
 )
 async def score_list(interaction: discord.Interaction):
 
@@ -743,7 +756,7 @@ class DeleteConfirmView(discord.ui.View):
 @bot.tree.command(
     name="score_delete",
     description="記録削除",
-    guild=GUILD_ID
+    guild=discord.Object(id=config.GUILD_ID)
 )
 
 @app_commands.describe(num="番号")
@@ -772,7 +785,7 @@ async def score_delete(
 @bot.tree.command(
     name="score_delete_me",
     description="⚠この操作を行うとあなたのこれまでの記録が全て消えます！",
-    guild=GUILD_ID
+    guild=discord.Object(id=config.GUILD_ID)
 )
 async def score_delete_me(
     interaction: discord.Interaction,
@@ -793,7 +806,7 @@ async def score_delete_me(
 @bot.tree.command(
     name="score_best",
     description="曲別最高点",
-    guild=GUILD_ID
+    guild=discord.Object(id=config.GUILD_ID)
 )
 async def score_best(interaction: discord.Interaction):
 
@@ -818,7 +831,7 @@ async def score_best(interaction: discord.Interaction):
 @bot.tree.command(
     name="song_info",
     description="曲情報",
-    guild=GUILD_ID
+    guild=discord.Object(id=config.GUILD_ID)
 )
 
 @app_commands.describe(song="曲名")
@@ -906,7 +919,7 @@ async def song_info(
 @bot.tree.command(
     name="template",
     description="CSVテンプレートを取得",
-    guild=GUILD_ID
+    guild=discord.Object(id=config.GUILD_ID)
 )
 async def template(interaction: discord.Interaction):
 
@@ -934,4 +947,4 @@ def get_role_color(guild, role_name):
 
 threading.Thread(target=run_web, daemon=True).start()
 
-bot.run(os.getenv("TOKEN"))
+bot.run(config.TOKEN)

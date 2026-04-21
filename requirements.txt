@@ -1,8 +1,8 @@
-discord.py
-python-dotenv
+discord.py==2.3.2
+python-dotenv==1.0.1
 
-pytesseract
-opencv-python
-Pillow
+pytesseract==0.3.10
+opencv-python==4.9.0.80
+Pillow==10.3.0
 
-flask
+flask==3.0.3

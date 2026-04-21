@@ -229,3 +229,104 @@ def update_score(user_id, song, score, mode):
     conn.close()
 
     return "nochange"
+
+
+def get_all_scores():
+    conn = sqlite3.connect("score.db")
+    c = conn.cursor()
+
+    c.execute("""
+    SELECT user, MAX(score)
+    FROM scores
+    GROUP BY user
+    ORDER BY MAX(score) DESC
+    """)
+
+    rows = c.fetchall()
+    conn.close()
+
+    return rows
+
+
+def add_exp(user, exp):
+    conn = sqlite3.connect("score.db")
+    c = conn.cursor()
+
+    c.execute("""
+    CREATE TABLE IF NOT EXISTS user_level (
+        user TEXT PRIMARY KEY,
+        exp INTEGER,
+        level INTEGER
+    )
+    """)
+
+    c.execute("SELECT exp, level FROM user_level WHERE user=?", (user,))
+    row = c.fetchone()
+
+    if row:
+        current_exp, level = row
+    else:
+        current_exp, level = 0, 1
+
+    current_exp += int(exp)
+
+    # レベル計算（簡易）
+    new_level = current_exp // 100 + 1
+
+    c.execute("""
+    INSERT OR REPLACE INTO user_level (user, exp, level)
+    VALUES (?, ?, ?)
+    """, (user, current_exp, new_level))
+
+    conn.commit()
+    conn.close()
+
+    return current_exp, new_level
+
+
+def get_level(user):
+    conn = sqlite3.connect("score.db")
+    c = conn.cursor()
+
+    c.execute("SELECT exp, level FROM user_level WHERE user=?", (user,))
+    row = c.fetchone()
+
+    conn.close()
+
+    if row:
+        return row
+    return 0, 1
+
+
+def set_monthly_song(song):
+    conn = sqlite3.connect("score.db")
+    c = conn.cursor()
+
+    c.execute("""
+    CREATE TABLE IF NOT EXISTS monthly (
+        song TEXT,
+        month TEXT
+    )
+    """)
+
+    month = datetime.now().strftime("%Y-%m")
+
+    c.execute("DELETE FROM monthly WHERE month=?", (month,))
+    c.execute("INSERT INTO monthly VALUES (?, ?)", (song, month))
+
+    conn.commit()
+    conn.close()
+
+
+def get_monthly_song():
+    conn = sqlite3.connect("score.db")
+    c = conn.cursor()
+
+    month = datetime.now().strftime("%Y-%m")
+
+    c.execute("SELECT song FROM monthly WHERE month=?", (month,))
+    row = c.fetchone()
+
+    conn.close()
+
+    return row[0] if row else None

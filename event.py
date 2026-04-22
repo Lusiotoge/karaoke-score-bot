@@ -2,30 +2,32 @@ import discord
 from discord.ext import tasks
 import random
 import db
-import config
+import os
+
 
 class EventSystem:
     def __init__(self, bot):
         self.bot = bot
 
-        # 二重起動防止
         if not self.monthly_task.is_running():
             self.monthly_task.start()
 
-    @tasks.loop(minutes=5)  # ← 1時間より安全（内部で日付判定）
+    @tasks.loop(minutes=5)
     async def monthly_task(self):
 
         now = discord.utils.utcnow()
 
-        # 毎月1日 0:00〜0:05だけ実行
         if not (now.day == 1 and now.hour == 0 and now.minute < 5):
             return
 
-        guild = self.bot.get_guild(config.GUILD_ID)
+        GUILD_ID = int(os.environ["GUILD_ID"])
+        EVENT_CHANNEL_ID = int(os.environ["EVENT_CHANNEL_ID"])
+
+        guild = self.bot.get_guild(GUILD_ID)
         if not guild:
             return
 
-        channel = guild.get_channel(config.EVENT_CHANNEL_ID)
+        channel = guild.get_channel(EVENT_CHANNEL_ID)
         if not channel:
             return
 
@@ -35,7 +37,6 @@ class EventSystem:
 
         last_song = db.get_monthly_song()
 
-        # 前回と被らないようにする（軽い対策）
         candidates = [s for s in songs if s != last_song] or songs
         song = random.choice(candidates)
 
@@ -55,6 +56,7 @@ class EventSystem:
 
 
 from discord import app_commands
+
 
 class EventCommands(app_commands.Group):
     def __init__(self):

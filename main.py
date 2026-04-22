@@ -15,11 +15,12 @@ import db
 import csv
 import io
 
-import config
-
 from datetime import datetime
 
 import os
+
+TOKEN = os.environ["TOKEN"]
+GUILD_ID = int(os.environ["GUILD_ID"])
 
 from flask import Flask
 import threading
@@ -121,7 +122,7 @@ class OCRConfirmView(discord.ui.View):
 @bot.tree.command(
     name="ocr_import",
     description="画像からスコア読み込み",
-    guild=discord.Object(id=config.GUILD_ID)
+    guild=discord.Object(id=GUILD_ID)
 )
 
 async def ocr_import(interaction: discord.Interaction, image: discord.Attachment):
@@ -160,23 +161,26 @@ def get_machine_from_mode(mode: str) -> str:
 
 @bot.event
 async def on_ready():
-
     print(f"Login: {bot.user}")
 
     db.init_db()
 
-    guild = discord.Object(id=config.GUILD_ID)
+    guild = discord.Object(id=GUILD_ID)
 
     try:
+        # コマンド追加
         bot.tree.add_command(RequestCommands(), guild=guild)
         bot.tree.add_command(RankingCommands(), guild=guild)
+        bot.tree.add_command(EventCommands(), guild=guild)
 
-        synced = await bot.tree.sync(guild=guild)  # ←ここも修正
+        # 同期
+        synced = await bot.tree.sync(guild=guild)
         print(f"Sync {len(synced)} commands")
 
     except Exception as e:
         print(e)
 
+    # イベント初期化
     EventSystem(bot)
 
 # ---------------- ping ----------------
@@ -184,7 +188,7 @@ async def on_ready():
 @bot.tree.command(
     name="ping",
     description="test",
-    guild=discord.Object(id=config.GUILD_ID)
+    guild=discord.Object(id=GUILD_ID)
 )
 async def ping(interaction: discord.Interaction):
 
@@ -192,13 +196,11 @@ async def ping(interaction: discord.Interaction):
 
 
 # ---------------- score add ----------------
-
 @bot.tree.command(
     name="score_add",
     description="記録追加",
-    guild=discord.Object(id=config.GUILD_ID)
+    guild=discord.Object(id=GUILD_ID)
 )
-
 @app_commands.describe(
     method="入力方法",
     machine="機種",
@@ -206,20 +208,16 @@ async def ping(interaction: discord.Interaction):
     song="曲名",
     score="点数"
 )
-
 @app_commands.choices(
-
     method=[
-        app_commands.Choice(name="manual", value="manual"), #手入力
-        app_commands.Choice(name="csv", value="csv"), #OctariaCsv
-        app_commands.Choice(name="csv_template", value="csv_template"),  #自作テンプレートcsv
+        app_commands.Choice(name="manual", value="manual"),
+        app_commands.Choice(name="csv", value="csv"),
+        app_commands.Choice(name="csv_template", value="csv_template"),
     ],
-
     machine=[
         app_commands.Choice(name="DAM", value="DAM"),
         app_commands.Choice(name="JOYSOUND", value="JOYSOUND"),
     ],
-
     mode=[
         app_commands.Choice(name="DAM Ai Heart", value="DAM Ai Heart"),
         app_commands.Choice(name="DAM Ai", value="DAM Ai"),
@@ -234,7 +232,6 @@ async def ping(interaction: discord.Interaction):
         app_commands.Choice(name="Other", value="Other"),
     ]
 )
-
 async def score_add(
     interaction: discord.Interaction,
     method: app_commands.Choice[str],
@@ -270,7 +267,6 @@ async def score_add(
 
         if last:
             last_score, _ = last
-
             if score > last_score:
                 improved = True
                 score_diff = score - last_score
@@ -280,7 +276,6 @@ async def score_add(
 
         db.add_score(user, song, score, mode.value, date)
 
-        # メッセージ
         if first_time:
             msg = "🎉 初回登録！"
         elif improved:
@@ -289,7 +284,6 @@ async def score_add(
             msg = "記録しました（更新なし）"
 
         await interaction.followup.send(msg, ephemeral=True)
-
         return
 
     # =========================
@@ -343,7 +337,6 @@ async def score_add(
             f"更新:{updated}件 / 新規:{new}件",
             ephemeral=True
         )
-
         return
 
     # =========================
@@ -369,7 +362,7 @@ async def score_add(
             if i < 2:
                 continue
 
-            if len(row) < 4:
+            if len(row) < 5:  # ←修正済み
                 continue
 
             try:
@@ -379,7 +372,6 @@ async def score_add(
                     continue
 
                 score = float(score_text)
-
                 mode_name = row[3].strip()
 
                 last = db.get_last_full(user, song)
@@ -399,7 +391,6 @@ async def score_add(
             f"更新:{updated}件 / 新規:{new}件",
             ephemeral=True
         )
-
         return
 
 
@@ -673,7 +664,7 @@ class ScoreListView(discord.ui.View):
 @bot.tree.command(
     name="score_list",
     description="記録一覧",
-    guild=discord.Object(id=config.GUILD_ID)
+    guild=discord.Object(id=GUILD_ID)
 )
 async def score_list(interaction: discord.Interaction):
 
@@ -756,7 +747,7 @@ class DeleteConfirmView(discord.ui.View):
 @bot.tree.command(
     name="score_delete",
     description="記録削除",
-    guild=discord.Object(id=config.GUILD_ID)
+    guild=discord.Object(id=GUILD_ID)
 )
 
 @app_commands.describe(num="番号")
@@ -785,7 +776,7 @@ async def score_delete(
 @bot.tree.command(
     name="score_delete_me",
     description="⚠この操作を行うとあなたのこれまでの記録が全て消えます！",
-    guild=discord.Object(id=config.GUILD_ID)
+    guild=discord.Object(id=GUILD_ID)
 )
 async def score_delete_me(
     interaction: discord.Interaction,
@@ -806,7 +797,7 @@ async def score_delete_me(
 @bot.tree.command(
     name="score_best",
     description="曲別最高点",
-    guild=discord.Object(id=config.GUILD_ID)
+    guild=discord.Object(id=GUILD_ID)
 )
 async def score_best(interaction: discord.Interaction):
 
@@ -831,7 +822,7 @@ async def score_best(interaction: discord.Interaction):
 @bot.tree.command(
     name="song_info",
     description="曲情報",
-    guild=discord.Object(id=config.GUILD_ID)
+    guild=discord.Object(id=GUILD_ID)
 )
 
 @app_commands.describe(song="曲名")
@@ -919,7 +910,7 @@ async def song_info(
 @bot.tree.command(
     name="template",
     description="CSVテンプレートを取得",
-    guild=discord.Object(id=config.GUILD_ID)
+    guild=discord.Object(id=GUILD_ID)
 )
 async def template(interaction: discord.Interaction):
 
@@ -947,4 +938,4 @@ def get_role_color(guild, role_name):
 
 threading.Thread(target=run_web, daemon=True).start()
 
-bot.run(config.TOKEN)
+bot.run(TOKEN)

@@ -1,12 +1,9 @@
 import discord
 from discord import app_commands
 from datetime import datetime
-import config
+import os
 
 
-# =========================
-# ボタンView
-# =========================
 class RequestActionView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
@@ -14,7 +11,6 @@ class RequestActionView(discord.ui.View):
     async def update_embed(self, interaction, new_status: str):
         embed = interaction.message.embeds[0]
 
-        # 状態フィールドを書き換え
         for i, field in enumerate(embed.fields):
             if field.name == "状態":
                 embed.set_field_at(i, name="状態", value=new_status, inline=False)
@@ -34,21 +30,11 @@ class RequestActionView(discord.ui.View):
         await self.update_embed(interaction, "未対応")
 
 
-# =========================
-# コマンド
-# =========================
 class RequestCommands(app_commands.Group):
     def __init__(self):
         super().__init__(name="request", description="リクエスト関連")
 
-    # ===== 送信 =====
     @app_commands.command(name="send", description="楽曲リクエストを送信")
-    @app_commands.describe(
-        song="曲名",
-        url="URL（必須）",
-        user="リクエスト相手",
-        here="@here通知"
-    )
     async def send(
         self,
         interaction: discord.Interaction,
@@ -57,8 +43,12 @@ class RequestCommands(app_commands.Group):
         user: discord.Member | None = None,
         here: bool = False,
     ):
+        REQUEST_CHANNEL_ID = int(os.environ["REQUEST_CHANNEL_ID"])
+        channel = interaction.guild.get_channel(REQUEST_CHANNEL_ID)
 
-        channel = interaction.guild.get_channel(config.REQUEST_CHANNEL_ID)
+        if not channel:
+            await interaction.response.send_message("チャンネルが見つかりません", ephemeral=True)
+            return
 
         # 宛先
         if user:
@@ -68,10 +58,7 @@ class RequestCommands(app_commands.Group):
             target_text = "@here"
             target_id = "here"
         else:
-            await interaction.response.send_message(
-                "user か here のどちらかを指定してください",
-                ephemeral=True
-            )
+            await interaction.response.send_message("userかhereを指定してください", ephemeral=True)
             return
 
         embed = discord.Embed(
@@ -91,16 +78,17 @@ class RequestCommands(app_commands.Group):
         await channel.send(
             content=target_text,
             embed=embed,
-            view=RequestActionView()  # ←ここ重要
+            view=RequestActionView()
         )
 
         await interaction.response.send_message("送信しました", ephemeral=True)
 
-    # ===== 一覧 =====
     @app_commands.command(name="list", description="自分宛リクエスト確認")
     async def list(self, interaction: discord.Interaction):
 
-        channel = interaction.guild.get_channel(config.REQUEST_CHANNEL_ID)
+        REQUEST_CHANNEL_ID = int(os.environ["REQUEST_CHANNEL_ID"])
+        channel = interaction.guild.get_channel(REQUEST_CHANNEL_ID)
+
         user_id = str(interaction.user.id)
 
         results = []
@@ -121,14 +109,7 @@ class RequestCommands(app_commands.Group):
             await interaction.response.send_message("リクエストなし", ephemeral=True)
             return
 
-        await interaction.response.send_message(
-            f"{len(results)}件見つかりました",
-            ephemeral=True
-        )
+        await interaction.response.send_message(f"{len(results)}件見つかりました", ephemeral=True)
 
         for msg, e in results[:5]:
-            await interaction.followup.send(
-                embed=e,
-                view=RequestActionView(),  # ←ボタン付きで再表示
-                ephemeral=True
-            )
+            await interaction.followup.send(embed=e, view=RequestActionView(), ephemeral=True)
